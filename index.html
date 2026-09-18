@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>レシートPDF提出くん</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#F2F4F2;
+  --surface:#FFFFFF;
+  --surface-sunken:#E7EAE7;
+  --ink:#1D2624;
+  --ink-soft:#5B6864;
+  --line:#D6DAD6;
+  --accent:#2B5D63;
+  --accent-strong:#1C4247;
+  --accent-soft:#DCEAE9;
+  --danger:#B3492F;
+  --shadow:0 1px 2px rgba(29,38,36,.08), 0 8px 24px rgba(29,38,36,.07);
+}
+img{ max-width:100%; }
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#171C1B;
+    --surface:#212826;
+    --surface-sunken:#1B211F;
+    --ink:#ECEFED;
+    --ink-soft:#A6B1AD;
+    --line:#333C39;
+    --accent:#74C4B7;
+    --accent-strong:#93D6CB;
+    --accent-soft:#25403D;
+    --danger:#E39079;
+    --shadow:0 1px 2px rgba(0,0,0,.45), 0 10px 28px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#171C1B;
+  --surface:#212826;
+  --surface-sunken:#1B211F;
+  --ink:#ECEFED;
+  --ink-soft:#A6B1AD;
+  --line:#333C39;
+  --accent:#74C4B7;
+  --accent-strong:#93D6CB;
+  --accent-soft:#25403D;
+  --danger:#E39079;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 10px 28px rgba(0,0,0,.4);
+}
+*{ box-sizing:border-box; }
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Zen Kaku Gothic New','Hiragino Sans','Yu Gothic',sans-serif;
+  -webkit-tap-highlight-color:transparent;
+}
+.mono{ font-family:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace; font-variant-numeric:tabular-nums; }
+.app-shell{ max-width:480px; margin:0 auto; padding:16px 16px 64px; }
+a,button{ font-family:inherit; }
+
+/* ---- header ---- */
+.app-header{ display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+.mark{ flex:none; width:34px; height:34px; }
+.mark rect{ stroke:var(--accent); stroke-width:6; }
+.app-title{ font-size:1.22rem; font-weight:700; letter-spacing:.01em; text-wrap:balance; margin:0; }
+.app-sub{ margin:2px 0 0; font-size:.8rem; color:var(--ink-soft); }
+
+/* ---- persistent progress bar (always visible, outside every screen) ---- */
+.progress-bar{
+  position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:var(--paper); padding:8px 0 12px; margin-bottom:8px; border-bottom:1px solid var(--line);
+}
+.progress-bar .count{ font-size:.85rem; color:var(--ink-soft); flex:none; }
+.progress-bar .btn{ width:auto; flex:none; padding:9px 14px; font-size:.82rem; }
+
+/* ---- panel ---- */
+.panel{ background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:var(--shadow); }
+.panel + .panel{ margin-top:16px; }
+.panel h2{ font-size:1.02rem; font-weight:700; margin:0 0 4px; text-wrap:balance; }
+.panel .hint{ margin:0 0 16px; font-size:.83rem; color:var(--ink-soft); line-height:1.6; }
+[hidden]{ display:none !important; }
+
+/* ---- camera ---- */
+.cam-wrap{
+  position:relative; margin:0 auto 14px; border-radius:10px; overflow:hidden; background:#000;
+  box-shadow:0 2px 10px rgba(0,0,0,.25); width:min(280px, 78vw);
+}
+.cam-wrap video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
+.cam-wrap .ring{ position:absolute; inset:0; border:2px solid rgba(255,255,255,.85); border-radius:10px; pointer-events:none; }
+.cam-placeholder{
+  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px;
+  background:rgba(0,0,0,.78); color:#fff; text-align:center; padding:20px;
+}
+.cam-placeholder p{ margin:0; font-size:.85rem; line-height:1.6; }
+.cam-placeholder .btn{ width:auto; padding:11px 20px; }
+
+.shutter-btn{
+  display:block; margin:0 auto 14px; width:64px; height:64px; border-radius:50%;
+  border:4px solid var(--surface); background:var(--accent); box-shadow:var(--shadow); cursor:pointer; padding:0;
+}
+.shutter-btn:active{ background:var(--accent-strong); }
+.shutter-btn:disabled{ opacity:.35; cursor:default; }
+.cam-error{ color:var(--danger); text-align:center; }
+.cap-note{ text-align:center; color:var(--ink-soft); }
+
+.thumb-strip{ display:flex; gap:8px; overflow-x:auto; padding:2px 2px 12px; margin:0; -webkit-overflow-scrolling:touch; }
+.thumb-strip img{
+  flex:none; width:52px; height:75px; object-fit:cover; border-radius:6px; border:1px solid var(--line);
+  cursor:pointer; background:#fff;
+}
+.gallery-pick{ display:block; text-align:center; font-size:.8rem; color:var(--ink-soft); padding:10px; cursor:pointer; }
+.gallery-pick input{ display:none; }
+
+/* ---- correction (shared editor, bound to whichever item is current) ---- */
+.correct-preview-slot{ display:flex; justify-content:center; margin-bottom:14px; }
+.correct-preview-slot canvas{
+  width:min(220px, 70vw); height:auto; border-radius:8px; border:1px solid var(--line);
+  box-shadow:var(--shadow); background:#fff; display:block;
+}
+details.detail-adjust{ margin-bottom:16px; border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:var(--surface-sunken); }
+details.detail-adjust summary{ cursor:pointer; font-size:.85rem; font-weight:700; color:var(--ink-soft); }
+details.detail-adjust[open] summary{ margin-bottom:10px; }
+.correct-controls{ display:flex; flex-direction:column; gap:14px; margin-top:10px; }
+.field label{ display:flex; justify-content:space-between; font-size:.8rem; color:var(--ink-soft); margin-bottom:4px; }
+.field label .val{ font-family:'IBM Plex Mono',monospace; color:var(--ink); }
+.field input[type=range]{ width:100%; accent-color:var(--accent); }
+.toggle-row{ display:flex; align-items:center; justify-content:space-between; font-size:.85rem; }
+.switch{ position:relative; width:40px; height:24px; flex:none; }
+.switch input{ opacity:0; width:100%; height:100%; margin:0; position:absolute; cursor:pointer; }
+.switch .track{ position:absolute; inset:0; background:var(--surface-sunken); border:1px solid var(--line); border-radius:999px; transition:background .15s; }
+.switch .knob{ position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,.3); transition:transform .15s; }
+.switch input:checked + .track{ background:var(--accent); border-color:var(--accent); }
+.switch input:checked + .track + .knob{ transform:translateX(16px); }
+.auto-btn{
+  display:flex; align-items:center; justify-content:center; gap:6px; width:100%;
+  background:var(--accent-soft); color:var(--accent-strong); border:1px solid var(--accent);
+  border-radius:10px; padding:10px; font-weight:700; font-size:.85rem; cursor:pointer;
+}
+.auto-btn:active{ background:var(--accent); color:#fff; }
+
+/* ---- buttons ---- */
+.btn{
+  appearance:none; border:none; border-radius:11px; padding:13px 18px; font-size:.92rem; font-weight:700;
+  cursor:pointer; width:100%; text-align:center;
+}
+.btn-primary{ background:var(--accent); color:#fff; }
+.btn-primary:active{ background:var(--accent-strong); }
+.btn-primary:disabled{ opacity:.45; cursor:default; }
+.btn-ghost{ background:transparent; color:var(--ink-soft); font-weight:500; padding:8px; }
+.btn-row{ display:flex; gap:10px; margin-top:4px; }
+.btn-row .btn{ width:auto; flex:1; }
+
+.spec-note{ font-size:.78rem; color:var(--ink-soft); text-align:center; margin:14px 0 0; line-height:1.7; }
+.spec-note .mono{ color:var(--ink); }
+</style>
+
+</head>
+<body>
+<div class="app-shell">
+  <header class="app-header">
+    <svg class="mark" viewBox="0 0 34 34" aria-hidden="true">
+      <rect x="3" y="3" width="12" height="12" fill="var(--accent)"/>
+      <rect x="19" y="3" width="12" height="12" fill="var(--accent)"/>
+      <rect x="3" y="19" width="12" height="12" fill="var(--accent)"/>
+      <rect x="19" y="19" width="12" height="12" fill="var(--accent)"/>
+    </svg>
+    <div>
+      <p class="app-title">レシートPDF提出くん</p>
+      <p class="app-sub">レシートや通帳を撮って、まとめて1つのPDFにします(最大20枚)</p>
+    </div>
+  </header>
+
+  <div class="progress-bar">
+    <span class="count mono" id="countLabel">0/20枚</span>
+    <button class="btn btn-primary" id="finishBtn" disabled>仕上げてPDFにする</button>
+  </div>
+
+  <!-- ============ camera screen ============ -->
+  <section class="panel" id="cameraScreen">
+    <h2>撮影</h2>
+    <p class="hint">枠にレシート全体を収めてから、丸いボタンで撮影してください。ズレたら撮り直せます。</p>
+    <div class="cam-wrap" id="camWrap">
+      <video id="camVideo" autoplay muted playsinline></video>
+      <div class="ring"></div>
+      <div class="cam-placeholder" id="camPlaceholder">
+        <p>レシートを枠に収めて撮影します。<br>カメラへのアクセスを許可してください。</p>
+        <button type="button" class="btn btn-primary" id="startCameraBtn">カメラを起動</button>
+      </div>
+    </div>
+    <p class="hint cam-error" id="cameraError" hidden></p>
+    <p class="hint cap-note" id="capNote" hidden>最大20枚まで撮影しました。「仕上げてPDFにする」に進んでください。</p>
+    <button type="button" class="shutter-btn" id="shutterBtn" disabled aria-label="撮影する"></button>
+    <div class="thumb-strip" id="thumbStrip"></div>
+    <label class="gallery-pick">
+      <span>写真から選ぶ(撮影済みの写真を使う場合)</span>
+      <input type="file" accept="image/*" id="galleryInput">
+    </label>
+  </section>
+
+  <!-- ============ correction / confirm screen (shared: new shot / edit existing) ============ -->
+  <section class="panel" id="correctionScreen" hidden>
+    <h2 id="correctionHeading">確認</h2>
+    <p class="hint" id="correctionHint"></p>
+    <div class="correct-preview-slot" id="previewSlot"></div>
+    <details class="detail-adjust">
+      <summary>詳細調整(薄い印字はここで濃くできます)</summary>
+      <button type="button" class="auto-btn" id="autoBtn">⚡ 自動補正(くっきり濃く)</button>
+      <div class="correct-controls" id="correctControls"></div>
+    </details>
+    <div class="btn-row" id="newItemButtons">
+      <button type="button" class="btn btn-ghost" id="retakeBtn">撮り直す</button>
+      <button type="button" class="btn btn-primary" id="addItemBtn">この内容で追加</button>
+    </div>
+    <div id="editItemButtons" hidden>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" id="cancelEditBtn">キャンセル</button>
+        <button type="button" class="btn btn-primary" id="saveEditBtn">保存</button>
+      </div>
+      <button type="button" class="btn btn-ghost" id="deleteItemBtn">この1枚を削除</button>
+    </div>
+  </section>
+
+  <!-- ============ finish / PDF screen ============ -->
+  <section class="panel" id="finishScreen" hidden>
+    <h2>PDFにする</h2>
+    <p class="hint" id="finishHint"></p>
+    <button type="button" class="btn btn-primary" id="buildPdfBtn">PDFを作成する</button>
+    <div id="pdfReadyBlock" hidden>
+      <p class="hint">PDFができました(<span class="mono" id="pdfPageNote"></span>)。</p>
+      <button type="button" class="btn btn-primary" id="shareBtn">共有する(Slackへ送る/コピー)</button>
+      <button type="button" class="btn btn-ghost" id="downloadBtn">ダウンロードする</button>
+    </div>
+    <button type="button" class="btn btn-ghost" id="backToCameraBtn">撮影に戻る(追加で撮る)</button>
+    <button type="button" class="btn btn-ghost" id="resetAllBtn">最初からやり直す</button>
+    <p class="spec-note">1面あたり <span class="mono" id="cellMmNote"></span>・A4全体 <span class="mono" id="sheetPxNote"></span></p>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---- constants: same A4/4分割 math as「3面まとめ印刷くん」, but all 4 cells are used ----
+  var MM_PER_IN = 25.4;
+  var OUTPUT_DPI = 200;
+  var A4_W_MM = 210, A4_H_MM = 297;
+  var MARGIN_MM = 7;
+  var GUTTER_MM = 4;
+  var SLOT_W_MM = (A4_W_MM - MARGIN_MM * 2 - GUTTER_MM) / 2;
+  var CELL_H_MM = (A4_H_MM - MARGIN_MM * 2 - GUTTER_MM) / 2;
+  var NARROW_FACTOR = 0.9;
+  var CELL_W_MM = SLOT_W_MM * NARROW_FACTOR;
+  var FRAME_RATIO = CELL_W_MM / CELL_H_MM; // width / height, shared by the camera frame
+
+  function mm2px(mm){ return Math.round(mm / MM_PER_IN * OUTPUT_DPI); }
+  var OUT_W = mm2px(CELL_W_MM), OUT_H = mm2px(CELL_H_MM);
+  var SHEET_W = mm2px(A4_W_MM), SHEET_H = mm2px(A4_H_MM);
+  var CENTER_OFFSET_MM = (SLOT_W_MM - CELL_W_MM) / 2;
+  var CELL_POS = [
+    { x: mm2px(MARGIN_MM + CENTER_OFFSET_MM), y: mm2px(MARGIN_MM) },
+    { x: mm2px(MARGIN_MM + SLOT_W_MM + GUTTER_MM + CENTER_OFFSET_MM), y: mm2px(MARGIN_MM) },
+    { x: mm2px(MARGIN_MM + CENTER_OFFSET_MM), y: mm2px(MARGIN_MM + CELL_H_MM + GUTTER_MM) },
+    { x: mm2px(MARGIN_MM + SLOT_W_MM + GUTTER_MM + CENTER_OFFSET_MM), y: mm2px(MARGIN_MM + CELL_H_MM + GUTTER_MM) }
+  ];
+  var MAX_ITEMS = 20;
+  var PER_PAGE = 4;
+
+  document.getElementById('cellMmNote').textContent = CELL_W_MM.toFixed(1) + '×' + CELL_H_MM.toFixed(1) + 'mm';
+  document.getElementById('sheetPxNote').textContent = SHEET_W + '×' + SHEET_H + 'px (' + OUTPUT_DPI + 'dpi)';
+  document.getElementById('camWrap').style.aspectRatio = CELL_W_MM + ' / ' + CELL_H_MM;
+
+  function defaultCorrection(){
+    return { grayscale: true, levelMin: 0, levelMax: 255, brightness: 0, contrast: 0, binarize: false, threshold: 150 };
+  }
+  function makeCanvas(w, h){ var c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+  // ---- DOM refs ----
+  var cameraScreenEl = document.getElementById('cameraScreen');
+  var correctionScreenEl = document.getElementById('correctionScreen');
+  var finishScreenEl = document.getElementById('finishScreen');
+  var countLabelEl = document.getElementById('countLabel');
+  var finishBtn = document.getElementById('finishBtn');
+
+  var camVideoEl = document.getElementById('camVideo');
+  var camWrapEl = document.getElementById('camWrap');
+  var camPlaceholderEl = document.getElementById('camPlaceholder');
+  var startCameraBtn = document.getElementById('startCameraBtn');
+  var cameraErrorEl = document.getElementById('cameraError');
+  var capNoteEl = document.getElementById('capNote');
+  var shutterBtn = document.getElementById('shutterBtn');
+  var thumbStripEl = document.getElementById('thumbStrip');
+  var galleryInput = document.getElementById('galleryInput');
+
+  var correctionHeadingEl = document.getElementById('correctionHeading');
+  var correctionHintEl = document.getElementById('correctionHint');
+  var previewSlotEl = document.getElementById('previewSlot');
+  var autoBtn = document.getElementById('autoBtn');
+  var newItemButtonsEl = document.getElementById('newItemButtons');
+  var editItemButtonsEl = document.getElementById('editItemButtons');
+  var retakeBtn = document.getElementById('retakeBtn');
+  var addItemBtn = document.getElementById('addItemBtn');
+  var cancelEditBtn = document.getElementById('cancelEditBtn');
+  var saveEditBtn = document.getElementById('saveEditBtn');
+  var deleteItemBtn = document.getElementById('deleteItemBtn');
+
+  var finishHintEl = document.getElementById('finishHint');
+  var buildPdfBtn = document.getElementById('buildPdfBtn');
+  var pdfReadyBlockEl = document.getElementById('pdfReadyBlock');
+  var pdfPageNoteEl = document.getElementById('pdfPageNote');
+  var shareBtn = document.getElementById('shareBtn');
+  var downloadBtn = document.getElementById('downloadBtn');
+  var backToCameraBtn = document.getElementById('backToCameraBtn');
+  var resetAllBtn = document.getElementById('resetAllBtn');
+
+  // ---- state ----
+  var items = [];              // {id, rawCropped, correction, finalCanvas, thumbUrl}
+  var nextId = 1;
+  var screenName = 'camera';   // 'camera' | 'correction' | 'finish'
+  var pendingShot = null;      // item-shaped object, not yet added to items[]
+  var editingId = null;
+  var savedCorrectionSnapshot = null;
+  var currentTarget = null;    // whichever item the correction editor is bound to
+  var stream = null;
+  var cameraEverGranted = false;
+  var pdfBlob = null, pdfFilename = null;
+
+  // ============ correction pipeline (ported from 3面まとめ印刷くん, byte-identical math) ============
+  function makeSlider(labelText, min, max, step){
+    var field = document.createElement('div'); field.className = 'field';
+    var label = document.createElement('label');
+    var span = document.createElement('span'); span.textContent = labelText;
+    var val = document.createElement('span'); val.className = 'val mono';
+    label.appendChild(span); label.appendChild(val);
+    var input = document.createElement('input');
+    input.type = 'range'; input.min = String(min); input.max = String(max); input.step = String(step);
+    field.appendChild(label); field.appendChild(input);
+    return { field: field, input: input, valEl: val };
+  }
+  function makeToggle(labelText){
+    var row = document.createElement('div'); row.className = 'toggle-row';
+    var span = document.createElement('span'); span.textContent = labelText;
+    var sw = document.createElement('label'); sw.className = 'switch';
+    var input = document.createElement('input'); input.type = 'checkbox';
+    var track = document.createElement('span'); track.className = 'track';
+    var knob = document.createElement('span'); knob.className = 'knob';
+    sw.appendChild(input); sw.appendChild(track); sw.appendChild(knob);
+    row.appendChild(span); row.appendChild(sw);
+    return { row: row, input: input };
+  }
+
+  var ctls = (function(){
+    var container = document.getElementById('correctControls');
+    var brightnessCtl = makeSlider('明るさ', -100, 100, 1);
+    var contrastCtl = makeSlider('コントラスト', -100, 100, 1);
+    var thresholdCtl = makeSlider('しきい値(2値化)', 0, 255, 1);
+    var grayscaleCtl = makeToggle('グレースケール');
+    var binarizeCtl = makeToggle('白黒2値化(最大限濃く)');
+    container.appendChild(grayscaleCtl.row);
+    container.appendChild(brightnessCtl.field);
+    container.appendChild(contrastCtl.field);
+    container.appendChild(binarizeCtl.row);
+    container.appendChild(thresholdCtl.field);
+    thresholdCtl.field.hidden = true;
+    return { brightnessCtl: brightnessCtl, contrastCtl: contrastCtl, thresholdCtl: thresholdCtl, grayscaleCtl: grayscaleCtl, binarizeCtl: binarizeCtl };
+  })();
+
+  function readCorrectionUI(target){
+    var c = target.correction;
+    c.brightness = parseFloat(ctls.brightnessCtl.input.value);
+    c.contrast = parseFloat(ctls.contrastCtl.input.value);
+    c.threshold = parseFloat(ctls.thresholdCtl.input.value);
+    c.grayscale = ctls.grayscaleCtl.input.checked;
+    c.binarize = ctls.binarizeCtl.input.checked;
+    if (c.binarize && !c.grayscale) { c.grayscale = true; ctls.grayscaleCtl.input.checked = true; }
+    ctls.thresholdCtl.field.hidden = !c.binarize;
+  }
+  function updateCorrectionLabels(target){
+    var c = target.correction;
+    ctls.brightnessCtl.valEl.textContent = c.brightness;
+    ctls.contrastCtl.valEl.textContent = c.contrast;
+    ctls.thresholdCtl.valEl.textContent = c.threshold;
+  }
+  function syncCorrectionUI(target){
+    var c = target.correction;
+    ctls.brightnessCtl.input.value = c.brightness;
+    ctls.contrastCtl.input.value = c.contrast;
+    ctls.thresholdCtl.input.value = c.threshold;
+    ctls.grayscaleCtl.input.checked = c.grayscale;
+    ctls.binarizeCtl.input.checked = c.binarize;
+    ctls.thresholdCtl.field.hidden = !c.binarize;
+    updateCorrectionLabels(target);
+  }
+  function applyCorrection(target){
+    var src = target.rawCropped;
+    if (!src) return;
+    var c = target.correction;
+    var out = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
+    var d = out.data;
+    var cf = (259 * (c.contrast + 255)) / (255 * (259 - c.contrast));
+    var range = Math.max(1, c.levelMax - c.levelMin);
+    for (var i = 0; i < d.length; i += 4) {
+      if (c.grayscale) {
+        var v = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        v = (v - c.levelMin) * 255 / range;
+        v = cf * (v - 128) + 128 + c.brightness;
+        v = v < 0 ? 0 : (v > 255 ? 255 : v);
+        if (c.binarize) v = v < c.threshold ? 0 : 255;
+        d[i] = d[i + 1] = d[i + 2] = v;
+      } else {
+        for (var k = 0; k < 3; k++) {
+          var vv = cf * (d[i + k] - 128) + 128 + c.brightness;
+          d[i + k] = vv < 0 ? 0 : (vv > 255 ? 255 : vv);
+        }
+      }
+    }
+    target.finalCanvas.getContext('2d').putImageData(out, 0, 0);
+  }
+  function autoLevels(target){
+    var src = target.rawCropped;
+    var d = src.data;
+    var hist = new Array(256).fill(0);
+    var n = 0;
+    for (var i = 0; i < d.length; i += 4) {
+      var v = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+      hist[v]++; n++;
+    }
+    var cut = n * 0.005;
+    var cum = 0, min = 0, max = 255;
+    for (var lo = 0; lo < 256; lo++) { cum += hist[lo]; if (cum >= cut) { min = lo; break; } }
+    cum = 0;
+    for (var hi = 255; hi >= 0; hi--) { cum += hist[hi]; if (cum >= cut) { max = hi; break; } }
+    if (max <= min) { min = 0; max = 255; }
+    target.correction.levelMin = min;
+    target.correction.levelMax = max;
+    target.correction.brightness = 0;
+    target.correction.contrast = 0;
+    target.correction.grayscale = true;
+    syncCorrectionUI(target);
+    applyCorrection(target);
+  }
+
+  [ctls.brightnessCtl, ctls.contrastCtl, ctls.thresholdCtl].forEach(function(ctl){
+    ctl.input.addEventListener('input', function(){
+      if (!currentTarget) return;
+      readCorrectionUI(currentTarget); applyCorrection(currentTarget); updateCorrectionLabels(currentTarget);
+    });
+  });
+  ctls.grayscaleCtl.input.addEventListener('change', function(){
+    if (!currentTarget) return;
+    readCorrectionUI(currentTarget); applyCorrection(currentTarget);
+  });
+  ctls.binarizeCtl.input.addEventListener('change', function(){
+    if (!currentTarget) return;
+    readCorrectionUI(currentTarget); applyCorrection(currentTarget); syncCorrectionUI(currentTarget);
+  });
+  autoBtn.addEventListener('click', function(){ if (currentTarget) autoLevels(currentTarget); });
+
+  function bindCorrectionEditor(target){
+    currentTarget = target;
+    previewSlotEl.innerHTML = '';
+    previewSlotEl.appendChild(target.finalCanvas);
+    syncCorrectionUI(target);
+  }
+
+  // ============ camera ============
+  async function startCamera(){
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+      });
+      camVideoEl.srcObject = stream;
+      await camVideoEl.play();
+      cameraEverGranted = true;
+      cameraErrorEl.hidden = true;
+      camPlaceholderEl.hidden = true;
+      if (items.length < MAX_ITEMS) shutterBtn.disabled = false;
+    } catch (e) {
+      cameraErrorEl.hidden = false;
+      cameraErrorEl.textContent = cameraErrorMessage(e);
+      camPlaceholderEl.hidden = false;
+    }
+  }
+  function stopCamera(){
+    if (stream) { stream.getTracks().forEach(function(t){ t.stop(); }); stream = null; }
+  }
+  function cameraErrorMessage(e){
+    if (e && e.name === 'NotAllowedError') return 'カメラへのアクセスが許可されていません。設定→Safari→カメラで許可してから、もう一度お試しください。下の「写真から選ぶ」も使えます。';
+    if (e && e.name === 'NotFoundError') return 'カメラが見つかりませんでした。下の「写真から選ぶ」をお使いください。';
+    return 'カメラを起動できませんでした。下の「写真から選ぶ」をお使いください。';
+  }
+  startCameraBtn.addEventListener('click', startCamera);
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) { if (screenName === 'camera') stopCamera(); }
+    else if (screenName === 'camera' && cameraEverGranted) { startCamera(); }
+  });
+  window.addEventListener('pagehide', stopCamera);
+
+  function enterCameraScreen(){
+    var capped = items.length >= MAX_ITEMS;
+    shutterBtn.disabled = capped;
+    capNoteEl.hidden = !capped;
+    galleryInput.disabled = capped;
+    if (cameraEverGranted) { startCamera(); }
+  }
+
+  function captureFrame(){
+    var vw = camVideoEl.videoWidth, vh = camVideoEl.videoHeight;
+    var boxW = camWrapEl.clientWidth, boxH = camWrapEl.clientHeight;
+    var coverScale = Math.max(boxW / vw, boxH / vh);
+    var srcW = boxW / coverScale, srcH = boxH / coverScale;
+    var srcX = (vw - srcW) / 2, srcY = (vh - srcH) / 2;
+    var off = document.createElement('canvas');
+    off.width = OUT_W; off.height = OUT_H;
+    off.getContext('2d').drawImage(camVideoEl, srcX, srcY, srcW, srcH, 0, 0, OUT_W, OUT_H);
+    return off.getContext('2d').getImageData(0, 0, OUT_W, OUT_H);
+  }
+  function cropImageCover(img){
+    var iw = img.naturalWidth, ih = img.naturalHeight;
+    var targetRatio = OUT_W / OUT_H;
+    var srcW, srcH;
+    if (iw / ih > targetRatio) { srcH = ih; srcW = ih * targetRatio; } else { srcW = iw; srcH = iw / targetRatio; }
+    var srcX = (iw - srcW) / 2, srcY = (ih - srcH) / 2;
+    var off = document.createElement('canvas');
+    off.width = OUT_W; off.height = OUT_H;
+    off.getContext('2d').drawImage(img, srcX, srcY, srcW, srcH, 0, 0, OUT_W, OUT_H);
+    return off.getContext('2d').getImageData(0, 0, OUT_W, OUT_H);
+  }
+
+  function openNewShot(rawCropped){
+    pendingShot = { rawCropped: rawCropped, correction: defaultCorrection(), finalCanvas: makeCanvas(OUT_W, OUT_H) };
+    correctionHeadingEl.textContent = '確認';
+    correctionHintEl.textContent = '薄い印字は自動補正済みです。必要なら「詳細調整」を開いて微調整してください。';
+    setButtonsMode('new');
+    bindCorrectionEditor(pendingShot);
+    autoLevels(pendingShot);
+    showScreen('correction');
+  }
+
+  shutterBtn.addEventListener('click', function(){
+    if (items.length >= MAX_ITEMS) return;
+    if (!camVideoEl.videoWidth) return;
+    openNewShot(captureFrame());
+  });
+  galleryInput.addEventListener('change', function(e){
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var img = new Image();
+    img.onload = function(){ openNewShot(cropImageCover(img)); };
+    img.src = URL.createObjectURL(file);
+    galleryInput.value = '';
+  });
+
+  // ============ thumbnails / progress ============
+  function updateThumbnail(item){
+    item.thumbUrl = item.finalCanvas.toDataURL('image/jpeg', 0.7);
+  }
+  function renderThumbStrip(){
+    thumbStripEl.innerHTML = '';
+    items.forEach(function(item, idx){
+      var img = document.createElement('img');
+      img.src = item.thumbUrl;
+      img.alt = (idx + 1) + '枚目(タップで編集)';
+      img.addEventListener('click', function(){ openEdit(item.id); });
+      thumbStripEl.appendChild(img);
+    });
+  }
+  function renderProgressBar(){
+    countLabelEl.textContent = items.length + '/' + MAX_ITEMS + '枚';
+    finishBtn.disabled = items.length === 0;
+  }
+
+  // ============ new-shot confirm / existing-item edit ============
+  function setButtonsMode(mode){
+    newItemButtonsEl.hidden = (mode !== 'new');
+    editItemButtonsEl.hidden = (mode !== 'edit');
+  }
+  addItemBtn.addEventListener('click', function(){
+    if (!pendingShot) return;
+    pendingShot.id = nextId++;
+    updateThumbnail(pendingShot);
+    items.push(pendingShot);
+    pendingShot = null;
+    currentTarget = null;
+    renderThumbStrip(); renderProgressBar();
+    showScreen('camera');
+  });
+  retakeBtn.addEventListener('click', function(){
+    pendingShot = null; currentTarget = null;
+    showScreen('camera');
+  });
+
+  function openEdit(id){
+    var idx = items.findIndex(function(it){ return it.id === id; });
+    if (idx < 0) return;
+    var item = items[idx];
+    editingId = id;
+    savedCorrectionSnapshot = Object.assign({}, item.correction);
+    correctionHeadingEl.textContent = (idx + 1) + '枚目を編集';
+    correctionHintEl.textContent = '濃さを調整できます。保存すると一覧に反映されます。';
+    setButtonsMode('edit');
+    bindCorrectionEditor(item);
+    showScreen('correction');
+  }
+  saveEditBtn.addEventListener('click', function(){
+    if (editingId != null) {
+      var item = items.find(function(it){ return it.id === editingId; });
+      if (item) updateThumbnail(item);
+    }
+    editingId = null; currentTarget = null;
+    renderThumbStrip();
+    showScreen('camera');
+  });
+  cancelEditBtn.addEventListener('click', function(){
+    if (editingId != null) {
+      var item = items.find(function(it){ return it.id === editingId; });
+      if (item && savedCorrectionSnapshot) { item.correction = savedCorrectionSnapshot; applyCorrection(item); }
+    }
+    editingId = null; currentTarget = null;
+    showScreen('camera');
+  });
+  deleteItemBtn.addEventListener('click', function(){
+    if (!confirm('この1枚を削除します。よろしいですか?')) return;
+    items = items.filter(function(it){ return it.id !== editingId; });
+    editingId = null; currentTarget = null;
+    renderThumbStrip(); renderProgressBar();
+    showScreen('camera');
+  });
+
+  // ============ finish / PDF ============
+  function buildPageCanvas(pageItems){
+    var sheet = document.createElement('canvas');
+    sheet.width = SHEET_W; sheet.height = SHEET_H;
+    var ctx = sheet.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SHEET_W, SHEET_H);
+    pageItems.forEach(function(item, k){
+      ctx.drawImage(item.finalCanvas, CELL_POS[k].x, CELL_POS[k].y, OUT_W, OUT_H);
+    });
+    return sheet;
+  }
+  function buildPdf(){
+    var doc = new jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    var numPages = Math.ceil(items.length / PER_PAGE);
+    for (var p = 0; p < numPages; p++) {
+      var pageItems = items.slice(p * PER_PAGE, p * PER_PAGE + PER_PAGE);
+      var canvas = buildPageCanvas(pageItems);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      if (p > 0) doc.addPage('a4', 'portrait');
+      doc.addImage(dataUrl, 'JPEG', 0, 0, A4_W_MM, A4_H_MM);
+    }
+    return doc.output('blob');
+  }
+  function buildFilename(){
+    var d = new Date();
+    function pad(n){ return String(n).padStart(2, '0'); }
+    return 'レシート_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + '.pdf';
+  }
+  function downloadFallback(blob, filename){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+  }
+
+  function enterFinishScreen(){
+    var pages = Math.ceil(items.length / PER_PAGE);
+    finishHintEl.textContent = items.length + '枚を' + pages + 'ページのPDFにまとめます。';
+    pdfBlob = null; pdfFilename = null;
+    pdfReadyBlockEl.hidden = true;
+  }
+  buildPdfBtn.addEventListener('click', function(){
+    if (items.length === 0) return;
+    buildPdfBtn.disabled = true;
+    buildPdfBtn.textContent = '作成中…';
+    // Yield one frame so the "作成中" label actually paints before the (synchronous,
+    // possibly multi-second for 20 photos) PDF assembly blocks the main thread.
+    setTimeout(function(){
+      try {
+        pdfBlob = buildPdf();
+        pdfFilename = buildFilename();
+        pdfPageNoteEl.textContent = Math.ceil(items.length / PER_PAGE) + 'ページ';
+        pdfReadyBlockEl.hidden = false;
+      } catch (e) {
+        alert('PDFの作成に失敗しました。もう一度お試しください。');
+      } finally {
+        buildPdfBtn.disabled = false;
+        buildPdfBtn.textContent = 'PDFを作成する';
+      }
+    }, 30);
+  });
+  shareBtn.addEventListener('click', async function(){
+    if (!pdfBlob) return;
+    var file = new File([pdfBlob], pdfFilename, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: pdfFilename }); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    downloadFallback(pdfBlob, pdfFilename);
+  });
+  downloadBtn.addEventListener('click', function(){
+    if (pdfBlob) downloadFallback(pdfBlob, pdfFilename);
+  });
+  backToCameraBtn.addEventListener('click', function(){ showScreen('camera'); });
+  resetAllBtn.addEventListener('click', function(){
+    if (!confirm('撮影した' + items.length + '枚を全て消して、最初からやり直します。よろしいですか?')) return;
+    items = []; pendingShot = null; editingId = null; currentTarget = null; pdfBlob = null; pdfFilename = null;
+    renderThumbStrip(); renderProgressBar();
+    showScreen('camera');
+  });
+
+  // ============ screen navigation ============
+  finishBtn.addEventListener('click', function(){ showScreen('finish'); });
+
+  function showScreen(name){
+    screenName = name;
+    cameraScreenEl.hidden = (name !== 'camera');
+    correctionScreenEl.hidden = (name !== 'correction');
+    finishScreenEl.hidden = (name !== 'finish');
+    if (name === 'camera') { enterCameraScreen(); } else { stopCamera(); }
+    if (name === 'finish') { enterFinishScreen(); }
+    renderProgressBar();
+  }
+
+  showScreen('camera');
+})();
+</script>
+</body>
+</html>
